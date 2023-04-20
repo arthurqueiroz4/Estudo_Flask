@@ -2,8 +2,10 @@ import uuid
 from flask import request
 from flask.views import MethodView
 from flask_smorest import Blueprint, abort
-from db import stores
 from schemas import StoreSchema
+from models import StoreModel
+from db import db
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 blp = Blueprint("stores", __name__, description="Operations on stores")
 
@@ -11,33 +13,33 @@ blp = Blueprint("stores", __name__, description="Operations on stores")
 class Store(MethodView):
     @blp.response(200, StoreSchema)
     def get(self, store_id):
-        try:
-            return stores[store_id]
-        except KeyError:
-            abort(404, message="Store not found")
+        store = StoreModel.query.get_or_404(store_id)
+        return store
 
     def delete(self, store_id):
-        try:
-            stores.pop(store_id)
-            return {"message":"Item deleted"},204
-        except KeyError:
-            abort(404, message="Store not found")
+        store = StoreModel.query.get_or_404(store_id)
+        db.session.delete(store)
+        db.session.commit()
+        return {"message": "Store deletado"}
 
 @blp.route("/store")
 class StoreList(MethodView):
     @blp.arguments(StoreSchema)
     @blp.response(201, StoreSchema) 
     def post(self, request_data):
-        for store in stores.values():
-            if store["name"] == request_data["name"]:
-                abort(400, message="Store already exists.")
-        store_id = uuid.uuid4().hex
-        store = {
-            **request_data, "id":store_id
-        }
-        stores[store_id] = store
-        return store, 201
+        store = StoreModel(**request_data)
+        try:
+            db.session.add(store)
+            db.session.commit()
+        except IntegrityError:
+            abort(
+                400, message="Store ja cadastrado"
+            )
+        except SQLAlchemyError:
+            abort(500, message="Erro ao salvar no banco")
+        return store
+
     @blp.response(201, StoreSchema(many=True))
     def get(self):
-        return list(stores.values())
+        return StoreModel.query.all()
 
